@@ -203,6 +203,26 @@ static void backspace_chars(int ttyfd, size_t p) {
         }
 }
 
+/* Ask a 2-factor provider to transform the passwords into actual disk encryption passphrases.
+ * Does nothing if no second factor provider is available.
+ * => the passwords are the disk encryption passphrases.
+ * => users can plausibly deny the existence of a second factor.
+ * => alternative passwords without second factor are possible,
+ *    e.g. backup passphrase for different LUKS key slot) */
+int ask_password_second_factor(char ***passwords) {
+
+        /* Find 2-factor provider */
+        /* Connect to 2-factor provider */
+        /* Pack passwords into transport format */
+        /* Send passwords to second factor provider */
+        /* Make 2-factor provider perform the transformations */
+        /* Receive passphrases (transformed passwords) */
+        /* Close connection to 2-factor provider */
+        /* Sanity check: len(passwords) = len(passphrases) */
+        /* Replace password pointer with passphrases pointer */
+
+}
+
 int ask_password_tty(
                 const char *message,
                 const char *keyname,
