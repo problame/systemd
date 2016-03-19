@@ -386,7 +386,10 @@ static int parse_password(const char *filename, char **wall) {
                         return log_error_errno(r, "Failed to query password: %m");
 
                 /* TODO: Maybe extend the Password Agent Spec by a `TwoFactorEnabled` field and make this conditional */
-                ask_password_second_factor(&passwords);
+                r = ask_password_second_factor(&passwords);
+                if (r < 0)
+                        log_error_errno(r, "Failed to use second factor: %m");
+
 
                 r = send_passwords(socket_name, passwords);
                 if (r < 0)

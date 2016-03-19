@@ -211,16 +211,76 @@ static void backspace_chars(int ttyfd, size_t p) {
  *    e.g. backup passphrase for different LUKS key slot) */
 int ask_password_second_factor(char ***passwords) {
 
+        int socket_fd, rc;
+        struct sockaddr_un addr;
+        size_t out_nulstr_len;
+        ssize_t in_buf_len;
+        char *out_nulstr, in_buf[LINE_MAX], **old_passwords;
+
+        assert(passwords);
+
+        rc = 0;
+
         /* Find 2-factor provider */
-        /* Connect to 2-factor provider */
+        addr = (struct sockaddr_un) {
+                .sun_family = AF_UNIX,
+                .sun_path = "/tmp/systemd-2factor-provider"
+        };
+
+
         /* Pack passwords into transport format */
-        /* Send passwords to second factor provider */
+        if (strv_make_nulstr(*passwords, &out_nulstr, &out_nulstr_len) != 0) {
+                rc = -1;
+                goto out10;
+        }
+
+        /* Connect to 2-factor provider */
+        if ((socket_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+                rc = -errno;
+                goto out10;
+        }
+        if (connect(socket_fd, &addr,
+                    offsetof(struct sockaddr_un, sun_path) + strlen(addr.sun_path) + 1) == -1) {
+                rc = -errno;
+                goto out20;
+        }
+
+        /* Send buffer to second factor provider */
+        if (write(socket_fd, out_nulstr, out_nulstr_len) == -1) {
+                rc = -errno;
+                goto out20;
+        }
+
         /* Make 2-factor provider perform the transformations */
         /* Receive passphrases (transformed passwords) */
-        /* Close connection to 2-factor provider */
-        /* Sanity check: len(passwords) = len(passphrases) */
-        /* Replace password pointer with passphrases pointer */
+        memset(in_buf, '\0', LINE_MAX);
+        if ((in_buf_len = read(socket_fd, &in_buf, LINE_MAX-1)) == -1) {
+                rc = -errno;
+                goto out20;
+        }
 
+        if (startswith(in_buf, "ERROR")) {
+                rc = -1;
+                goto out20;
+        }
+
+        /* Replace password pointer with passphrases pointer */
+        old_passwords = *passwords;
+        *passwords = strv_parse_nulstr(in_buf, in_buf_len);
+        if (!(*passwords)) {
+                rc = -1;
+                goto out20;
+        }
+
+        strv_free_erase(old_passwords);
+
+out20:
+        /* Close connection to 2-factor provider */
+        close(socket_fd);
+out10:
+        free(out_nulstr);
+
+        return rc;
 }
 
 int ask_password_tty(
