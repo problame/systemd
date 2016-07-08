@@ -215,7 +215,9 @@ int ask_password_second_factor(char ***passwords) {
         struct sockaddr_un addr;
         size_t out_nulstr_len;
         ssize_t in_buf_len;
-        char *out_nulstr, in_buf[LINE_MAX], **old_passwords;
+        _cleanup_free_ char *out_nulstr = NULL;
+        _cleanup_free_ char *in_buf = NULL;
+        _cleanup_strv_free_erase_ char **transformed_passwords = NULL;
 
         assert(passwords);
 
@@ -231,55 +233,61 @@ int ask_password_second_factor(char ***passwords) {
         /* Pack passwords into transport format */
         if (strv_make_nulstr(*passwords, &out_nulstr, &out_nulstr_len) != 0) {
                 rc = -1;
-                goto out10;
+                goto out00;
         }
 
         /* Connect to 2-factor provider */
         if ((socket_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
                 rc = -errno;
-                goto out10;
+                goto out00;
         }
         if (connect(socket_fd, &addr,
                     offsetof(struct sockaddr_un, sun_path) + strlen(addr.sun_path) + 1) == -1) {
                 rc = -errno;
-                goto out20;
+                goto out10;
         }
 
         /* Send buffer to second factor provider */
         if (write(socket_fd, out_nulstr, out_nulstr_len) == -1) {
                 rc = -errno;
-                goto out20;
+                goto out10;
         }
 
         /* Make 2-factor provider perform the transformations */
         /* Receive passphrases (transformed passwords) */
+        in_buf = malloc(sizeof(char) * LINE_MAX);
+        if (!in_buf) {
+                rc = -1;
+                goto out10;
+        }
         memset(in_buf, '\0', LINE_MAX);
-        if ((in_buf_len = read(socket_fd, &in_buf, LINE_MAX-1)) == -1) {
+
+        if ((in_buf_len = read(socket_fd, in_buf, LINE_MAX-1)) == -1) {
                 rc = -errno;
-                goto out20;
+                goto out10;
         }
 
         if (startswith(in_buf, "ERROR")) {
                 rc = -1;
-                goto out20;
+                goto out10;
         }
 
-        /* Replace password pointer with passphrases pointer */
-        old_passwords = *passwords;
-        *passwords = strv_parse_nulstr(in_buf, in_buf_len);
-        if (!(*passwords)) {
+        /* Unpack transformed passwords */
+        transformed_passwords = strv_parse_nulstr(in_buf, in_buf_len);
+        if (!transformed_passwords) {
                 rc = -1;
-                goto out20;
+                goto out10;
         }
 
-        strv_free_erase(old_passwords);
+        if (strv_extend_strv(passwords, transformed_passwords, true) < 0) {
+                rc = -1;
+                goto out10;
+        }
 
-out20:
+out10:
         /* Close connection to 2-factor provider */
         close(socket_fd);
-out10:
-        free(out_nulstr);
-
+out00:
         return rc;
 }
 
